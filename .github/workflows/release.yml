@@ -21,7 +21,7 @@ jobs:
           bun-version: 1.4.3
       - run: bun install --frozen-lockfile
       - run: bun run build
-      - run: sha256sum dist/omp-tg > dist/omp-tg.sha256
+      - run: cd dist && sha256sum omp-tg > omp-tg.sha256
       - uses: softprops/action-gh-release@v2
         with:
           files: |
