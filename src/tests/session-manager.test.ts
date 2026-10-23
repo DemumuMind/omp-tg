@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "../config/env.ts";
 import { loadConfig } from "../config/env.ts";
@@ -332,8 +332,12 @@ describe("SessionManager", () => {
 
     const dir = sessionDir("/tmp/omp-tg-tests", sessionKey(target.chatId, target.messageThreadId));
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "2026-01-01_a.jsonl"), "{}\n");
-    await writeFile(join(dir, "2026-01-02_b.jsonl"), "{}\n");
+    const first = join(dir, "2026-01-01_a.jsonl");
+    const second = join(dir, "2026-01-02_b.jsonl");
+    await writeFile(first, "{}\n");
+    await writeFile(second, "{}\n");
+    await utimes(first, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
+    await utimes(second, new Date(), new Date());
 
     await manager.handleCommand(target, { kind: "export" });
     expect(api.callsOf("sendDocument").length).toBeGreaterThan(0);
