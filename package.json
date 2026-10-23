@@ -1,0 +1,25 @@
+{
+  "name": "omp-tg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram gateway for OMP over the JSON-RPC stdio protocol",
+  "license": "MIT",
+  "scripts": {
+    "build": "bun build --compile --minify ./src/index.ts --outfile ./dist/omp-tg",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "test:omp": "OMP_E2E=1 bun test src/tests/ci-omp.test.ts",
+    "start": "bun run src/index.ts",
+    "test:all": "OMP_E2E=1 bun test"
+  },
+  "dependencies": {
+    "@grammyjs/auto-retry": "2.0.2",
+    "grammy": "1.46.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  }
+}

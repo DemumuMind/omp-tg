@@ -1,0 +1,11 @@
+[Unit]
+Description=Update OMP and restart the Telegram gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=OMP_USER=omp
+Environment=OMP_BIN=/home/omp/.local/bin/omp
+ExecStart=/opt/omp-tg/bin/omp-update.sh

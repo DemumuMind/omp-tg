@@ -1,0 +1,9 @@
+export const RICH = 32768;
+export const MSG = 4096;
+export const CAPTION = 1024;
+export const MIN_EDIT_INTERVAL_MS = 1200;
+export const CALLBACK_DATA_MAX = 64;
+export const BASH_TIMEOUT_MS = 30_000;
+export const BASH_OUTPUT_LIMIT = 32 * 1024;
+export const UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+export const FILE_MAX_BYTES = 50 * 1024 * 1024;

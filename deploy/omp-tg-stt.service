@@ -1,0 +1,25 @@
+[Unit]
+Description=Local faster-whisper STT for omp-tg
+After=network.target
+
+[Service]
+Type=simple
+User=omp
+Group=omp
+Environment=STT_MODEL=small
+Environment=STT_LANGUAGE=
+Environment=STT_PORT=8765
+Environment=STT_DOWNLOAD_ROOT=/home/omp/.cache/omp-tg-stt
+Environment=HF_HUB_DISABLE_TELEMETRY=1
+ExecStart=/home/omp/.local/share/omp-tg/stt-venv/bin/python /opt/omp-tg/bin/stt_server.py
+Nice=10
+Restart=always
+RestartSec=3
+MemoryMax=2G
+ReadWritePaths=/home/omp/.cache/omp-tg-stt
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

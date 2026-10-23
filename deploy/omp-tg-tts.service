@@ -1,0 +1,22 @@
+[Unit]
+Description=Local Piper TTS for omp-tg
+After=network.target
+
+[Service]
+Type=simple
+User=omp
+Group=omp
+Environment=TTS_MODEL=/home/omp/.local/share/omp-tg/piper/ru_RU-irina-medium.onnx
+Environment=TTS_PORT=8767
+Environment=TTS_MAX_CHARS=4000
+ExecStart=/home/omp/.local/share/omp-tg/tts-venv/bin/python /opt/omp-tg/bin/tts_server.py
+Nice=10
+Restart=always
+RestartSec=3
+MemoryMax=1G
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
