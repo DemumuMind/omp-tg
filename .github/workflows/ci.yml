@@ -30,7 +30,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
-      - run: curl -fsSL https://omp.sh | sh
+      - run: curl -fsSL https://omp.sh/install | sh
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
       - run: OMP_E2E=1 OMP_BIN="$HOME/.local/bin/omp" bun test src/tests/ci-omp.test.ts
