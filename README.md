@@ -1,3 +1,5 @@
+[![CI](https://github.com/DemumuMind/omp-tg/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DemumuMind/omp-tg/actions/workflows/ci.yml)
+
 # omp-tg
 
 Telegram-шлюз к [OMP](https://docs.omp.sh): агент живёт в Telegram как обычный собеседник, а шлюз общается с `omp --mode rpc` по официальному JSON-RPC (NDJSON поверх stdio). Один standalone-бинарник Bun, без Node.js и Docker.
