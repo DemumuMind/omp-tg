@@ -209,7 +209,7 @@ Covers a silently deaf poller, restart conflicts, Telegram 429 storms, and dupli
 **C - polish:** 12, 13, 14, 15.
 Inline pagination, duplicate-safe rich fallback, video/voice metadata, long-paste batching.
 
-## Appendix: full Telegram surface (not covered by the 15 items above)
+## Appendix: Telegram adapter surface (not covered by the 15 items above)
 
 The numbered list is a **porting shortlist**, not an inventory of Hermes' Telegram functionality. Hermes' adapter also exposes the following. `omp-tg` status is against the current `main`.
 
@@ -245,7 +245,8 @@ The numbered list is a **porting shortlist**, not an inventory of Hermes' Telegr
 | Voice | STT hardening, empty-transcript sentinel, local/cloud TTS, long-form split/concat, speed, duration | faster-whisper + Piper; no guards, truncates at 1500 chars, no duration |
 | Home channel | cron/notification delivery, topic-aware home channel | no |
 | Onboarding | QR/managed bot setup, dashboard connection | manual BotFather + env |
-| Business | Telegram Business connection support | no |
+| Business | Telegram Business connection support (Hermes Labs observe-with-approval plugin) | no |
+| Agent tools | `send_message` to Telegram (text/media/voice/audio/captions/proxy/retries), `send_message(action=react)` | no equivalent; OMP cannot call gateway tools |
 | Rich streaming | dedicated streaming transport, rich drafts, overflow continuation | editMessageText + rich final |
 
 ### Completeness verdict
@@ -254,3 +255,19 @@ The numbered list is a **porting shortlist**, not an inventory of Hermes' Telegr
 - **High-value gaps for us:** STT/TTS correctness (items 1-5), entity mentions (6), polling/409 (7-8), progress-gated watchdog (9), flood pacing (10), persistent receipts (11), batching (15).
 - **Low-value for us:** Telegram Business, managed-bot QR onboarding, webhook mode, local Bot API server, DM topics/`/topic`, per-topic profiles, home-channel cron, DoH transport, delivery ledger, channel posts, stickers/location. These are real Hermes features but add surface without improving the current single-user workflow.
 - **Partial features already present:** inline picker, model picker, forum threads, reactions (outgoing), media send, rich messages, health/watchdog, backups, release updates.
+
+### Scope limits
+
+This document is **not** a complete Hermes product inventory. It covers the Telegram adapter, the voice stack and gateway supervision. The following are Telegram-adjacent Hermes surfaces that were **not** audited in detail:
+
+- **Agent-side messaging tools:** `tools/send_message_tool.py` and `tools/send_message_senders.py` support Telegram text/media/voice/audio, caption splitting, `TELEGRAM_PROXY`, transient retries, thread-not-found fallback, home-chat defaults, message mirroring and cron dedupe. Our OMP agent has no tool that calls the gateway sender; it can only reply, use `MEDIA:` or send via `/file`.
+- **Agent-side reactions:** `tools/react_to_message_tool.py` and `send_message(action="react")`; ours only sets a fixed 👀/👍/👎 outside the model.
+- **Telegram Business:** `plugin-catalog/hermes-telegram-business.yaml` + Hermes Labs plugin. A secretary bot drafts replies to customer DMs and sends each draft to the owner with Send/Edit/Discard; nothing reaches the customer until approved.
+- **Managed bot onboarding:** `hermes_cli/telegram_managed_bot.py` creates a bot through the Nous setup service via QR/deep link, retrieves the token, and stores it. Ours is manual BotFather + env.
+- **Cron/home channel:** scheduled deliveries to `TELEGRAM_HOME_CHANNEL`, topic-aware, with dedupe.
+- **Command registry/skill access:** `hermes_cli/commands_platforms.py`, per-chat slash access control, priority/cap for the BotFather menu, plugin/skill command gating.
+- **Per-channel prompts, per-topic profile/model/skill binding:** routing a chat/topic to a different profile, model or skill set.
+- **Sticker cache/vision, media cache, channel directory, relay/ACP, mirror:** auxiliary services around the adapter.
+- **Bot API features Hermes itself does not implement:** no `sendInvoice`, `answerWebAppQuery`, `sendGame`, Passport, `sendPoll`, `sendChecklist`, `sendPaidMedia`, `createInvoiceLink` or Stars refunds were found in the inspected trees. Do not treat this list as a formal Bot API coverage guarantee.
+
+A literal “every Bot API feature” matrix is not useful for this gateway: Telegram exposes payments, games, Passport, Web Apps, polls, checklists, paid media and Stars, none of which fit a single-user assistant. The adapter-surface matrix above is the useful completeness boundary.
