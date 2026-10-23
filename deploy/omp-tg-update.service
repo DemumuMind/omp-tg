@@ -1,0 +1,12 @@
+[Unit]
+Description=Update omp-tg from the latest GitHub release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=OMP_TG_REPO=DemumuMind/omp-tg
+Environment=OMP_TG_BIN=/opt/omp-tg/bin/omp-tg
+Environment=OMP_TG_SERVICE=omp-tg
+ExecStart=/opt/omp-tg/bin/omp-tg-update.sh

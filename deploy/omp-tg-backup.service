@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up omp-tg config and OMP sessions
+
+[Service]
+Type=oneshot
+User=root
+Environment=OMP_USER=omp
+Environment=OMP_SESSION_ROOT=/home/omp/.omp/tg-sessions
+Environment=OMP_ENV_FILE=/etc/omp-tg/env
+Environment=BACKUP_DIR=/var/backups/omp-tg
+Environment=BACKUP_KEEP_DAYS=14
+ExecStart=/opt/omp-tg/bin/omp-tg-backup.sh

@@ -21,6 +21,8 @@ Telegram-шлюз к [OMP](https://docs.omp.sh): агент живёт в Telegr
 - `!cmd` — bash через OMP; `@path` — файл из рабочего каталога.
 - Allowlist пользователей, sandbox для `@path`, denylist разрушительных команд.
 
+Репозиторий: https://github.com/DemumuMind/omp-tg (public, MIT).
+
 ## Требования
 
 - Linux, systemd.
@@ -76,8 +78,8 @@ TELEGRAM_BOT_TOKEN=test ALLOWED_USER_IDS=1 ./dist/omp-tg --check
 | `OMP_START_TIMEOUT_MS` | `30000` | ожидание `ready` от OMP |
 | `OMP_REQUEST_TIMEOUT_MS` | `30000` | таймаут RPC-команды (не промпта) |
 | `THROTTLE_MS` | `1200` | минимальный интервал правок streaming-сообщения |
-| `OMP_MEMORY_MAX` | `2G` | лимит памяти на OMP-scope |
-| `OMP_MEMORY_SWAP_MAX` | `512M` | лимит swap на OMP-scope |
+| `OMP_MEMORY_MAX` | `1G` | лимит памяти на OMP-scope |
+| `OMP_MEMORY_SWAP_MAX` | `256M` | лимит swap на OMP-scope |
 | `OMP_TASKS_MAX` | `512` | лимит задач на OMP-scope |
 | `OMP_CPU_QUOTA` | `200%` | лимит CPU на OMP-scope |
 | `HEALTH_HOST` / `HEALTH_PORT` | `127.0.0.1:8766` | локальный `/health`; `0` отключает |
@@ -133,6 +135,12 @@ sudo install -m 0644 deploy/omp-tg.service /etc/systemd/system/omp-tg.service
 sudo install -m 0644 deploy/omp-update.service /etc/systemd/system/omp-update.service
 sudo install -m 0644 deploy/omp-update.timer /etc/systemd/system/omp-update.timer
 sudo install -m 0755 deploy/omp-update.sh /opt/omp-tg/bin/omp-update.sh
+sudo install -m 0755 deploy/omp-tg-update.sh /opt/omp-tg/bin/omp-tg-update.sh
+sudo install -m 0755 deploy/omp-tg-backup.sh /opt/omp-tg/bin/omp-tg-backup.sh
+sudo install -m 0644 deploy/omp-tg-update.service /etc/systemd/system/omp-tg-update.service
+sudo install -m 0644 deploy/omp-tg-update.timer /etc/systemd/system/omp-tg-update.timer
+sudo install -m 0644 deploy/omp-tg-backup.service /etc/systemd/system/omp-tg-backup.service
+sudo install -m 0644 deploy/omp-tg-backup.timer /etc/systemd/system/omp-tg-backup.timer
 sudo install -m 0755 scripts/stt_server.py /opt/omp-tg/bin/stt_server.py
 sudo install -m 0755 scripts/tts_server.py /opt/omp-tg/bin/tts_server.py
 sudo install -m 0600 /dev/null /etc/omp-tg/env   # затем вписать токен и ALLOWED_USER_IDS
@@ -141,6 +149,8 @@ sudo loginctl enable-linger omp                 # нужно для systemd-run 
 sudo systemctl daemon-reload
 sudo systemctl enable --now omp-tg
 sudo systemctl enable --now omp-update.timer
+sudo systemctl enable --now omp-tg-update.timer
+sudo systemctl enable --now omp-tg-backup.timer
 ```
 
 STT (опционально, локально, без облака и ключей):
@@ -178,11 +188,22 @@ sudo systemctl enable --now omp-tg-tts
 
 Обновление OMP — ежедневный таймер (`04:00`, `Persistent=true`): `omp update --stable` + `systemctl restart omp-tg`. Отдельного `omp.service` нет: OMP-процессы — дети шлюза.
 
+Обновление самого шлюза — ежедневный таймер (`04:30`): скачивает `omp-tg` и `omp-tg.sha256` из latest GitHub release, проверяет checksum, атомарно подменяет бинарник и перезапускает сервис только если файл изменился. Предыдущая версия остаётся в `/opt/omp-tg/bin/omp-tg.prev`. Ручной запуск: `sudo systemctl start omp-tg-update`.
+
 Обновление бинарника — атомарная подмена:
 
 ```sh
 sudo deploy/install.sh dist/omp-tg
 ```
+
+Бэкап — ежедневно (`03:30`): `/etc/omp-tg/env` и `OMP_SESSION_ROOT` в `/var/backups/omp-tg/omp-tg-<UTC>.tar.gz` (0600, хранится 14 дней). Восстановление:
+
+```sh
+sudo tar -xzf /var/backups/omp-tg/omp-tg-<stamp>.tar.gz -C /
+sudo systemctl restart omp-tg
+```
+
+Бэкап локальный; для offsite добавьте свой rclone/S3-шаг в `deploy/omp-tg-backup.sh`.
 
 Диагностика:
 
@@ -191,6 +212,8 @@ journalctl -u omp-tg -o cat -f
 journalctl -u omp-tg-stt -o cat -f
 journalctl -u omp-tg-tts -o cat -f
 journalctl -u omp-update -o cat
+journalctl -u omp-tg-update -o cat
+journalctl -u omp-tg-backup -o cat
 ```
 
 Шлюз пишет по одной JSON-строке на событие; токены и секреты редактируются.
