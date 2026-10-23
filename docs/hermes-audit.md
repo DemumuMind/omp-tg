@@ -208,3 +208,49 @@ Covers a silently deaf poller, restart conflicts, Telegram 429 storms, and dupli
 
 **C - polish:** 12, 13, 14, 15.
 Inline pagination, duplicate-safe rich fallback, video/voice metadata, long-paste batching.
+
+## Appendix: full Telegram surface (not covered by the 15 items above)
+
+The numbered list is a **porting shortlist**, not an inventory of Hermes' Telegram functionality. Hermes' adapter also exposes the following. `omp-tg` status is against the current `main`.
+
+| Area | Hermes feature | omp-tg status |
+|---|---|---|
+| Inbound text | text, captions, edited messages, replies/quotes, channel posts | text/captions/reply prefix yes; edits and channel posts no |
+| Inbound media | photo, video, audio, voice, document, sticker, location, venue | photo/video/audio/voice/document/video-note/animation yes; sticker/location/venue no |
+| Albums | media groups merged with 800 ms debounce | no |
+| Outbound media | photo, video, voice, audio, document, animation, sticker, location, media group | photo/video/voice/audio/document/animation yes; sticker/location/album no |
+| Media metadata | video width/height/duration/thumbnail, voice duration, image pre-compression | no |
+| Reactions | incoming reaction events and allowlist | outgoing only |
+| Link handling | inline hidden `text_link` URLs into prompt | no |
+| Forum topics | topic creation service message, General=`1` send/typing asymmetry, thread-not-found retry, stale prune | partial: thread id passes through; no `1` normalization/retry |
+| DM topics | Bot API 9.4 private-chat topics, `/topic` multi-session mode, topic skill binding | no |
+| Topic routing | per-topic profile/model/skill isolation, auto-rename, restore session | no |
+| Group gating | entity mentions, guest mode, free-response chats/topics, allowed topics, ignored threads, observe unmentioned messages | allowlist + substring mention + regex wake words only |
+| Group bots | `allow_bots`, exclusive bot mentions, two-bot loop guard | no |
+| Group observation | cache unmentioned group/channel chatter as context | no |
+| Commands | command menu cap/priority (60), per-chat slash access control | fixed 14-command menu, global allowlist |
+| Inline mode | searchable/paginated picker over every command and skill | partial: gateway + cached OMP commands, filter/slice, no pagination |
+| Interactive UI | model picker, choice picker, clarify, exec approval, slash confirm | model picker + OMP ask/select/confirm/input; no exec approval |
+| Status UX | online/offline bot description, pinned user message, status messages edited in place, notification volume modes | streaming draft only |
+| Typing | cooldown/backoff, re-arm after intermediate send | fixed 4 s loop |
+| Transport | long polling, webhook mode + secret, proxy, DoH/IP fallback | long polling only |
+| Large files | local Bot API server for >20 MB, `local_mode` disk access | 20 MB Telegram Bot API limit |
+| Delivery | durable delivery ledger, crash redelivery markers, dead-target registry | no; auto-retry only |
+| Admission | in-memory dedupe, concurrent cross-chat updates, cold-boot pending queue | in-memory dedupe, per-chat serialization, configurable drop-pending |
+| Polling health | stall watchdog, pending-update probe, 409 conflict ladder, reconnect/backoff | grammY auto-retry only |
+| Watchdog | progress-gated sd_notify (refuses late ticks) | sd_notify on a timer |
+| Flood/pacing | per-chat send/edit slot, 429 cooldown, typing cooldown | fixed 1.2 s edit throttle; auto-retry |
+| Splitting | UTF-16 caps, fence-aware split, trailing `(i/n)` suffix, inline-code protection | balanced HTML/MDV2 split; `(i/n)` prefix on every chunk |
+| Rich | eligibility by tables/tasks/details/math, capability latch, transient-vs-fallback | rich for every final; any error falls back |
+| Voice | STT hardening, empty-transcript sentinel, local/cloud TTS, long-form split/concat, speed, duration | faster-whisper + Piper; no guards, truncates at 1500 chars, no duration |
+| Home channel | cron/notification delivery, topic-aware home channel | no |
+| Onboarding | QR/managed bot setup, dashboard connection | manual BotFather + env |
+| Business | Telegram Business connection support | no |
+| Rich streaming | dedicated streaming transport, rich drafts, overflow continuation | editMessageText + rich final |
+
+### Completeness verdict
+
+- **Not exhaustive:** the 15-item shortlist was filtered for a single-user Bun gateway, not a full parity plan.
+- **High-value gaps for us:** STT/TTS correctness (items 1-5), entity mentions (6), polling/409 (7-8), progress-gated watchdog (9), flood pacing (10), persistent receipts (11), batching (15).
+- **Low-value for us:** Telegram Business, managed-bot QR onboarding, webhook mode, local Bot API server, DM topics/`/topic`, per-topic profiles, home-channel cron, DoH transport, delivery ledger, channel posts, stickers/location. These are real Hermes features but add surface without improving the current single-user workflow.
+- **Partial features already present:** inline picker, model picker, forum threads, reactions (outgoing), media send, rich messages, health/watchdog, backups, release updates.
