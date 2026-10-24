@@ -14,7 +14,12 @@ export type GatewayCommand =
   | { kind: "sessions" }
   | { kind: "title"; name: string }
   | { kind: "resume"; target: string }
-  | { kind: "file"; path: string };
+  | { kind: "file"; path: string }
+  | { kind: "retry" }
+  | { kind: "voice" }
+  | { kind: "version" }
+  | { kind: "ping" }
+  | { kind: "digest"; argument: string };
 
 const COMMANDS: Record<string, true> = {
   start: true,
@@ -34,6 +39,11 @@ const COMMANDS: Record<string, true> = {
   title: true,
   resume: true,
   file: true,
+  retry: true,
+  voice: true,
+  version: true,
+  ping: true,
+  digest: true,
 };
 
 export function parseGatewayCommand(text: string): GatewayCommand | null {
@@ -77,6 +87,16 @@ export function parseGatewayCommand(text: string): GatewayCommand | null {
       return { kind: "resume", target: argument };
     case "file":
       return { kind: "file", path: argument };
+    case "retry":
+      return { kind: "retry" };
+    case "voice":
+      return { kind: "voice" };
+    case "version":
+      return { kind: "version" };
+    case "ping":
+      return { kind: "ping" };
+    case "digest":
+      return { kind: "digest", argument };
     default:
       return null;
   }

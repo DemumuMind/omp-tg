@@ -17,6 +17,8 @@ import { extractImages, extractTextDelta, extractToolActivity } from "./protocol
 import { StreamRenderer } from "../telegram/stream.ts";
 import { sessionDir, sessionKey } from "../telegram/session-key.ts";
 import type { Sender, Target } from "../telegram/sender.ts";
+import { randomBytes } from "node:crypto";
+import type { InlineKeyboardMarkup } from "grammy/types";
 import { UiController } from "./ui-controller.ts";
 import { ModelPickerHub } from "./model-picker.ts";
 import type { GatewayCommand } from "../telegram/commands.ts";
@@ -128,6 +130,9 @@ export class SessionManager {
   readonly #handles = new Map<string, SessionHandle>();
   readonly #creating = new Map<string, Promise<SessionHandle>>();
   readonly #modelPickers: ModelPickerHub;
+  readonly #lastPrompts = new Map<string, { text: string; images?: ImageContent[] }>();
+  readonly #voiceDefaults = new Map<string, boolean>();
+  readonly #sessionViews = new Map<string, { key: string; target: Target; page: number; messageId: number; expiresAt: number }>();
   #commandCache: { commands: Array<{ name: string; description?: string }>; expiresAt: number } | null = null;
   #sweeper: ReturnType<typeof setInterval> | null = null;
   #shuttingDown = false;
@@ -177,12 +182,14 @@ export class SessionManager {
       await handle.ui.handleText(text);
       return;
     }
+    this.#lastPrompts.set(handle.key, { text, images });
     if (handle.run !== null) {
       await this.#deps.sender.sendText(target, "⏳ Агент ещё работает. Остановить: /abort", {
         replyMarkup: this.#deps.sender.stopKeyboard(),
       });
       return;
     }
+    if (meta.voiceReply === undefined) meta.voiceReply = this.#voiceDefaults.get(handle.key) === true;
     void this.#startRun(handle, text, images ?? [], meta).catch((error: unknown) => {
       this.#deps.log.error("session_task_failed", { message: errorText(error) });
     });
@@ -204,6 +211,9 @@ export class SessionManager {
     if (!handle || handle.phase === "closed") return "Устарело";
     handle.lastUsed = this.#now();
     if (data.startsWith("mdl:")) return this.#modelPickers.handleCallback(target, data, (key) => this.#handles.get(key));
+    if (data.startsWith("ses:")) {
+      return this.#handleSessionCallback(target, data);
+    }
     if (data === "act:stop") {
       this.#deps.log.info("abort_requested", { key: handle.key });
       await handle.ui.cancelAll("abort").catch(() => undefined);
@@ -212,6 +222,70 @@ export class SessionManager {
       return "⛔ Останавливаю";
     }
     return handle.ui.handleCallback(data, target);
+  }
+
+  /** Fire-and-forget notice to a chat without engaging a session. */
+  async sendNotice(target: Target, html: string): Promise<void> {
+    await this.#deps.sender.sendText(target, html);
+  }
+
+  async retry(target: Target): Promise<void> {
+    const key = sessionKey(target.chatId, target.messageThreadId, target.userId);
+    const last = this.#lastPrompts.get(key);
+    if (!last) {
+      await this.#deps.sender.sendText(target, "Нечего повторять");
+      return;
+    }
+    await this.handleText(target, last.text, last.images);
+  }
+
+  async toggleVoice(target: Target): Promise<void> {
+    const key = sessionKey(target.chatId, target.messageThreadId, target.userId);
+    const next = !this.#voiceDefaults.get(key);
+    this.#voiceDefaults.set(key, next);
+    await this.#deps.sender.sendText(
+      target,
+      next ? "🎙 Голосовые ответы: <b>вкл</b>" : "🎙 Голосовые ответы: <b>выкл</b>",
+    );
+  }
+
+  async ping(target: Target): Promise<void> {
+    let handle: SessionHandle;
+    try {
+      handle = await this.#getOrCreate(target);
+    } catch {
+      await this.#deps.sender.sendText(target, "⚠️ OMP недоступен");
+      return;
+    }
+    if (handle.run !== null) {
+      await this.#deps.sender.sendText(target, "⏳ Агент занят, замер позже");
+      return;
+    }
+    const started = Date.now();
+    try {
+      const id = await handle.client.prompt("Ответь ровно одним словом: pong");
+      await handle.client.waitForPrompt(id);
+      const ms = Date.now() - started;
+      const state = await handle.client.getState().catch(() => null);
+      await this.#deps.sender.sendText(
+        target,
+        [
+          `<b>Задержка:</b> <code>${(ms / 1000).toFixed(1)} с</code> (полный круг: промпт → генерация)`,
+          `<b>Модель:</b> <code>${escapeFor("HTML", state?.model?.id ?? state?.model?.name ?? "—")}</code>`,
+        ].join("\n"),
+      );
+    } catch (error) {
+      await this.#deps.sender.sendText(target, `⚠️ ${escapeFor("HTML", errorText(error))}`);
+    }
+  }
+
+  /** Uploads land inside the live session dir when one exists; shared dir otherwise. */
+  async uploadDirFor(target: Target): Promise<string> {
+    const handle = this.#handles.get(sessionKey(target.chatId, target.messageThreadId, target.userId));
+    if (!handle || handle.phase === "closed") return this.#deps.config.OMP_UPLOAD_DIR;
+    const dir = join(handle.dir, "uploads");
+    await mkdir(dir, { recursive: true });
+    return dir;
   }
 
   async handleCommand(target: Target, cmd: SessionManagerCommand): Promise<void> {
@@ -336,18 +410,7 @@ export class SessionManager {
     }
 
     if (cmd.kind === "sessions") {
-      const sessions = await this.#recentSessions(sessionKey(target.chatId, target.messageThreadId, target.userId));
-      if (sessions.length === 0) {
-        await this.#deps.sender.sendText(target, "Сессий пока нет");
-        return;
-      }
-      const lines = ["<b>Сессии</b>"];
-      sessions.forEach((session, index) => {
-        const date = new Date(session.mtime).toISOString().slice(0, 16).replace("T", " ");
-        lines.push(`${index + 1}. <code>${escapeFor("HTML", basename(session.path))}</code> — ${date} — ${Math.round(session.size / 1024)} KB`);
-      });
-      lines.push("", "Восстановить: <code>/resume &lt;номер&gt;</code>");
-      await this.#deps.sender.sendText(target, lines.join("\n"));
+      await this.#showSessions(target, 0);
       return;
     }
 
@@ -665,6 +728,110 @@ export class SessionManager {
   cachedCommands(): Array<{ name: string; description?: string }> {
     if (!this.#commandCache || this.#commandCache.expiresAt < Date.now()) return [];
     return this.#commandCache.commands;
+  }
+
+  async #showSessions(target: Target, page: number): Promise<void> {
+    const key = sessionKey(target.chatId, target.messageThreadId, target.userId);
+    const sessions = await this.#recentSessions(key);
+    if (sessions.length === 0) {
+      await this.#deps.sender.sendText(target, "Сессий пока нет");
+      return;
+    }
+    const pageSize = 6;
+    const pages = Math.max(1, Math.ceil(sessions.length / pageSize));
+    page = Math.min(Math.max(page, 0), pages - 1);
+    const start = page * pageSize;
+    const visible = sessions.slice(start, start + pageSize);
+    const token = randomBytes(6).toString("base64url").slice(0, 8);
+    const rows: Array<Array<{ text: string; callback_data: string }>> = visible.map((session, offset) => {
+      const date = new Date(session.mtime).toISOString().slice(5, 16).replace("T", " ");
+      const label = `${start + offset + 1}. ${basename(session.path).slice(0, 14)} ${date} ${Math.round(session.size / 1024)}KB`;
+      return [{ text: label.length > 60 ? `${label.slice(0, 59)}…` : label, callback_data: `ses:${token}:${start + offset}` }];
+    });
+    const nav: Array<{ text: string; callback_data: string }> = [];
+    if (page > 0) nav.push({ text: "◀", callback_data: `ses:${token}:page:${page - 1}` });
+    if (page < pages - 1) nav.push({ text: "▶", callback_data: `ses:${token}:page:${page + 1}` });
+    if (nav.length > 0) rows.push(nav);
+    const keyboard: InlineKeyboardMarkup = { inline_keyboard: rows };
+    const html = `<b>Сессии</b> — ${page + 1}/${pages}\nНажми, чтобы восстановить`;
+    for (const [tok, view] of this.#sessionViews) {
+      if (view.expiresAt < Date.now()) this.#sessionViews.delete(tok);
+    }
+    const ids = await this.#deps.sender.sendText(target, html, { replyMarkup: keyboard });
+    this.#sessionViews.set(token, {
+      key,
+      target,
+      page,
+      messageId: ids[0] ?? 0,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+    while (this.#sessionViews.size > 32) {
+      const oldest = this.#sessionViews.keys().next().value;
+      if (oldest === undefined) break;
+      this.#sessionViews.delete(oldest);
+    }
+  }
+
+  async #handleSessionCallback(target: Target, data: string): Promise<string | undefined> {
+    const parts = data.split(":");
+    const view = this.#sessionViews.get(parts[1] ?? "");
+    if (!view || view.expiresAt < Date.now() || view.target.chatId !== target.chatId) return "Устарело";
+    const action = parts[2] ?? "";
+    if (action === "page") {
+      view.page = Number(parts[3] ?? "0") || 0;
+      const sessions = await this.#recentSessions(view.key);
+      if (sessions.length === 0) return "Устарело";
+      const pageSize = 6;
+      const pages = Math.max(1, Math.ceil(sessions.length / pageSize));
+      const page = Math.min(Math.max(view.page, 0), pages - 1);
+      const start = page * pageSize;
+      const visible = sessions.slice(start, start + pageSize);
+      const token = parts[1]!;
+      const rows: Array<Array<{ text: string; callback_data: string }>> = visible.map((session, offset) => {
+        const date = new Date(session.mtime).toISOString().slice(5, 16).replace("T", " ");
+        const label = `${start + offset + 1}. ${basename(session.path).slice(0, 14)} ${date} ${Math.round(session.size / 1024)}KB`;
+        return [{ text: label.length > 60 ? `${label.slice(0, 59)}…` : label, callback_data: `ses:${token}:${start + offset}` }];
+      });
+      const nav: Array<{ text: string; callback_data: string }> = [];
+      if (page > 0) nav.push({ text: "◀", callback_data: `ses:${token}:page:${page - 1}` });
+      if (page < pages - 1) nav.push({ text: "▶", callback_data: `ses:${token}:page:${page + 1}` });
+      if (nav.length > 0) rows.push(nav);
+      await this.#deps.sender.editText(
+        view.target,
+        view.messageId,
+        `<b>Сессии</b> — ${page + 1}/${pages}\nНажми, чтобы восстановить`,
+        { replyMarkup: { inline_keyboard: rows } },
+      );
+      return undefined;
+    }
+    const index = Number(action);
+    if (!Number.isInteger(index)) return "Устарело";
+    const sessions = await this.#recentSessions(view.key);
+    const picked = sessions[index];
+    if (!picked) return "Устарело";
+    let handle = this.#handles.get(view.key);
+    if (!handle || handle.phase === "closed") {
+      try {
+        handle = await this.#getOrCreate(view.target);
+      } catch {
+        return "OMP недоступен";
+      }
+    }
+    if (handle.run !== null) return "Сначала /stop";
+    try {
+      const cancelled = await handle.client.switchSession(picked.path);
+      if (cancelled) return "Отменено";
+      this.#sessionViews.delete(parts[1]!);
+      await this.#deps.sender.editText(
+        view.target,
+        view.messageId,
+        `↩️ Сессия: <code>${escapeFor("HTML", basename(picked.path))}</code>`,
+        { replyMarkup: { inline_keyboard: [] } },
+      );
+      return "↩️ Восстановлено";
+    } catch (error) {
+      return `⚠️ ${errorText(error)}`;
+    }
   }
 
   async #recentSessions(key: string): Promise<Array<{ path: string; mtime: number; size: number }>> {

@@ -20,6 +20,7 @@ import {
   targetOf,
 } from "./gate.ts";
 import { handleIncomingFile, mediaError, routeText } from "./handlers.ts";
+import { DigestController } from "./digest.ts";
 import { Sender } from "./sender.ts";
 import { startHealthServer } from "../health/server.ts";
 import { createWatchdog } from "../utils/watchdog.ts";
@@ -37,6 +38,7 @@ export interface ShutdownSteps {
   stopSessions: () => Promise<void>;
   stopHealth?: () => void;
   stopWatchdog?: () => void;
+  stopDigest?: () => void;
   stopRetention?: () => void;
   log: Logger;
   exit: (code: number) => void;
@@ -127,6 +129,12 @@ export function createApp(config: Config): App {
     }),
     log,
   );
+  const digest = new DigestController({
+    statePath: `${config.OMP_SESSION_ROOT}/digests.json`,
+    sessions,
+    log,
+  });
+  digest.start();
   const watchdog = createWatchdog(log);
   const retention = startRetention(config, sessions, log);
 
@@ -139,6 +147,7 @@ export function createApp(config: Config): App {
     groupAllowed: parseChatIds(config.TELEGRAM_GROUP_ALLOWED_CHATS),
     mentionPatterns: compilePatterns(config.TELEGRAM_MENTION_PATTERNS, log),
     queue: new KeyedQueue(),
+    digest,
   };
 
   const shutdown = makeShutdown({
@@ -147,6 +156,7 @@ export function createApp(config: Config): App {
     stopHealth: () => health?.stop(),
     stopRetention: () => retention(),
     stopWatchdog: () => watchdog.stop(),
+    stopDigest: () => digest.stop(),
     log,
     exit: (code) => process.exit(code),
   });

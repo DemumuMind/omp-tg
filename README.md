@@ -240,3 +240,13 @@ OMP_E2E=1 bun run test:omp  # handshake против установленног�
 ```
 
 Архитектура: `src/omp/client.ts` — единственное место spawn/handshake/close и scope-лимитов; `src/omp/session-manager.ts` — LRU и жизненный цикл сессий; `src/telegram/sender.ts` — единственное место rich/fallback, нарезки и inline-клавиатур; `src/stt/` + `scripts/stt_server.py` — распознавание, `src/tts/` + `scripts/tts_server.py` — синтез; `src/health/server.ts` + `src/utils/watchdog.ts` — liveness. Подробности — в `CONTRIBUTING.md`.
+
+### Новое в v0.3.0
+
+- `/retry` — переспросить последнее сообщение
+- `/voice` — переключить голосовые ответы (TTS)
+- `/ping` — замер полного круга до модели
+- `/sessions` — пагинация + кнопки «восстановить»
+- `/digest HH:MM <промпт>` — ежедневный дайджест в чат (state: `$OMP_SESSION_ROOT/digests.json`)
+- `/version` — версия шлюза + проверка релиза на GitHub
+- вложения складываются в `uploads/` активной сессии, `@path` работает и оттуда

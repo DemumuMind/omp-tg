@@ -19,6 +19,7 @@ import {
   type GatewayCommand,
 } from "./commands.ts";
 import { resolveSandboxPath } from "./sandbox.ts";
+import { checkForUpdate, formatVersionReport } from "./version.ts";
 import type { Target } from "./sender.ts";
 import {
   GATEWAY_COMMANDS,
@@ -85,11 +86,12 @@ export async function handleIncomingFile(
   const gated = gateGroup(runtime, ctx, caption);
   if (gated === null) return;
   try {
+    const uploadDir = await runtime.sessions.uploadDirFor(target);
     const path = await fetchFileAttachment(
       runtime.bot.api,
       runtime.config.TELEGRAM_BOT_TOKEN,
       file,
-      runtime.config.OMP_UPLOAD_DIR,
+      uploadDir,
       UPLOAD_MAX_BYTES,
       fallbackName,
     );
@@ -172,6 +174,21 @@ async function runCommand(runtime: Runtime, ctx: Context, target: Target, comman
       return;
     case "file":
       await handleFile(runtime, target, command.path);
+      return;
+    case "retry":
+      await runtime.sessions.retry(target);
+      return;
+    case "voice":
+      await runtime.sessions.toggleVoice(target);
+      return;
+    case "ping":
+      await runtime.sessions.ping(target);
+      return;
+    case "version":
+      await runtime.sender.sendText(target, formatVersionReport(await checkForUpdate()));
+      return;
+    case "digest":
+      await handleDigest(runtime, target, command.argument);
       return;
     case "usage":
     case "model":
@@ -280,6 +297,13 @@ export function mediaError(error: unknown): string {
   return `⚠️ ${escapeFor("HTML", errorText(error))}`;
 }
 
+async function handleDigest(runtime: Runtime, target: Target, argument: string): Promise<void> {
+  const arg = argument.trim();
+  if (arg === "off") await runtime.digest.remove(target);
+  else if (arg === "") await runtime.digest.describe(target);
+  else await runtime.digest.set(target, arg);
+}
+
 function helpText(target: Target, userId: number | undefined): string {
   return [
     "<b>omp-tg</b> — Telegram-шлюз OMP.",
@@ -291,6 +315,8 @@ function helpText(target: Target, userId: number | undefined): string {
     "<code>/model</code> — выбрать модель, <code>/usage</code> — токены и стоимость.",
     "<code>/commands</code> — команды OMP, <code>/whoami</code> — ID и доступ.",
     "<code>/file &lt;path&gt;</code> — отправить файл, <code>/cancel</code> — закрыть диалог.",
+    "<code>/retry</code> — переспросить последнее, <code>/voice</code> — голосовые ответы, <code>/ping</code> — замер модели.",
+    "<code>/digest HH:MM &lt;промпт&gt;</code> — ежедневный дайджест, <code>/version</code> — версия.",
     `<code>/id</code> — chat_id, thread_id, user_id (${target.chatId}, ${target.messageThreadId ?? "main"}, ${userId ?? "—"}).`,
   ].join("\n");
 }

@@ -347,7 +347,10 @@ describe("SessionManager", () => {
     expect(clients[0]!.titles).toEqual(["My session"]);
 
     await manager.handleCommand(target, { kind: "sessions" });
-    expect(lastText(api)).toContain("2026-01-02_b.jsonl");
+    const sessionsMessage = api.callsOf("sendMessage").at(-1);
+    expect(String(sessionsMessage?.args[1])).toContain("Сессии");
+    const markup = sessionsMessage?.args[2] as { reply_markup?: { inline_keyboard: unknown[][] } };
+    expect(JSON.stringify(markup.reply_markup?.inline_keyboard)).toContain("2026-01-02_b.jsonl".slice(0, 14));
 
     await manager.handleCommand(target, { kind: "resume", target: "1" });
     expect(clients[0]!.switches[0]?.endsWith("2026-01-02_b.jsonl")).toBe(true);

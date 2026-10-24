@@ -19,6 +19,12 @@ export async function resolveSandboxPath(config: Config, candidate: string): Pro
   } catch {
     // Missing paths are judged by their lexical location; the caller decides whether that is fatal.
   }
-  if (inside(actual, config.OMP_WORKDIR) || inside(actual, config.OMP_UPLOAD_DIR)) return actual;
+  if (
+    inside(actual, config.OMP_WORKDIR) ||
+    inside(actual, config.OMP_UPLOAD_DIR) ||
+    inside(actual, config.OMP_SESSION_ROOT)
+  ) {
+    return actual;
+  }
   return null;
 }

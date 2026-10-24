@@ -4,6 +4,7 @@ import type { SessionManager } from "../omp/session-manager.ts";
 import type { Logger } from "../utils/logger.ts";
 import type { KeyedQueue } from "../utils/keyed-queue.ts";
 import type { Sender, Target } from "./sender.ts";
+import type { DigestController } from "./digest.ts";
 
 export interface Runtime {
   config: Config;
@@ -14,6 +15,7 @@ export interface Runtime {
   groupAllowed: Set<number>;
   mentionPatterns: RegExp[];
   queue: KeyedQueue;
+  digest: DigestController;
 }
 
 export const GATEWAY_COMMANDS: Array<{ name: string; description: string }> = [
@@ -31,6 +33,11 @@ export const GATEWAY_COMMANDS: Array<{ name: string; description: string }> = [
   { name: "resume", description: "Восстановить сессию" },
   { name: "file", description: "Отправить файл" },
   { name: "cancel", description: "Закрыть диалог" },
+  { name: "retry", description: "Переспросить последнее" },
+  { name: "voice", description: "Голосовые ответы вкл/выкл" },
+  { name: "ping", description: "Замер задержки модели" },
+  { name: "version", description: "Версия и обновления" },
+  { name: "digest", description: "Расписание дайджестов" },
 ];
 
 export function parseChatIds(raw: string): Set<number> {
