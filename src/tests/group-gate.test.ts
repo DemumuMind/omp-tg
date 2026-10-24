@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseChatIds } from "../telegram/bot.ts";
+import { parseChatIds } from "../telegram/gate.ts";
 
 test("empty group allowlist stays empty", () => {
   expect(parseChatIds("")).toEqual(new Set());
