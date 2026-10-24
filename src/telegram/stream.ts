@@ -90,7 +90,12 @@ export class StreamRenderer {
     while (this.#pumping) await Bun.sleep(10);
   }
 
-  async finalize(markdown: string, images: ImageContent[], files: string[] = []): Promise<void> {
+  async finalize(
+    markdown: string,
+    images: ImageContent[],
+    files: string[] = [],
+    logOverride?: string,
+  ): Promise<void> {
     this.#finished = true;
     await this.#idle();
     if (markdown === "" && images.length === 0 && files.length === 0) {
@@ -99,8 +104,10 @@ export class StreamRenderer {
       else this.#messageId = null;
       return;
     }
-    // Everything in one message: progress log + final answer, joined and edited in place.
-    const combined = this.#text.trim() === "" ? markdown : `${this.#text}\n\n---\n\n${markdown}`;
+    // Everything in one message: log (tools/thinking) + final answer, edited in place.
+    // logOverride drops the streamed text so the answer is not duplicated.
+    const log = logOverride ?? this.#text;
+    const combined = log.trim() === "" ? markdown : `${log}\n\n---\n\n${markdown}`;
     let edited = false;
     if (this.#messageId !== null && combined.trim() !== "") {
       const html = truncateVisible(renderStreamingHtml(combined), MSG, "HTML");

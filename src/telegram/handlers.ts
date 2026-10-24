@@ -118,6 +118,9 @@ async function collectReplyMedia(
     const attachment = await describeAttachment(runtime, path, file.label);
     return { images: [], note: attachment.note };
   } catch (error) {
+    runtime.log.warn("reply_media_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     return { images: [], note: "" };
   }
 }

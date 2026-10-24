@@ -140,8 +140,10 @@ function fitActivity(lines: string[]): { visible: string[]; hidden: number } {
   return { visible: lines.slice(hidden), hidden };
 }
 
-export /** Renders the run like the OMP TUI: text, tools, thinking interleaved in arrival order. */
-function renderRun(run: ActiveRun): string {
+export /** Renders the run like the OMP TUI: text, tools, thinking interleaved in arrival order.
+ *  includeText=false drops the agent text segments — used at finalize so the streamed
+ *  text is not duplicated next to the final answer. */
+function renderRun(run: ActiveRun, includeText = true): string {
   const blocks: string[] = [];
   for (const segment of run.segments) {
     if (segment.kind === "tool") {
@@ -150,6 +152,7 @@ function renderRun(run: ActiveRun): string {
       const rendered = renderThinking(segment.text);
       if (rendered !== "") blocks.push(rendered);
     } else {
+      if (!includeText) continue;
       const text = stripMediaTags(segment.text).trim();
       if (text !== "") blocks.push(text);
     }
@@ -720,7 +723,7 @@ export class SessionManager {
         }
         files.push(actual);
       }
-      await renderer.finalize(media.text, run.images, files);
+      await renderer.finalize(media.text, run.images, files, renderRun(run, false));
       const report = renderToolReport(run);
       if (report !== null) {
         await this.#deps.sender.sendText(handle.target, report).catch(() => undefined);
