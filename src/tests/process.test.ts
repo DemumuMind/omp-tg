@@ -20,8 +20,9 @@ describe("buildOmpCommand", () => {
   test("systemd scope wraps command after the omp args", () => {
     const argv = buildOmpCommand("/bin/omp", "/tmp/s", "systemd-user-scope");
     expect(argv[0]).toBe("systemd-run");
-    expect(argv.at(-3)).toBe("--");
-    expect(argv.slice(-2)).toEqual(["/bin/omp", "--mode"]);
+    expect(argv.at(-6)).toBe("--");
+    expect(argv.at(-5)).toBe("/bin/omp");
+    expect(argv.slice(-2)).toEqual(["--session-dir", "/tmp/s"]);
     expect(argv).not.toContain("--thinking");
   });
 
