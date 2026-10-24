@@ -13,7 +13,7 @@ import {
   type SessionStats,
   type UiResponsePayload,
 } from "./protocol.ts";
-import { extractImages, extractTextDelta, extractToolActivity } from "./protocol.ts";
+import { extractImages, extractTextDelta, extractThinkingDelta, extractToolActivity } from "./protocol.ts";
 import { StreamRenderer } from "../telegram/stream.ts";
 import { sessionDir, sessionKey } from "../telegram/session-key.ts";
 import type { Sender, Target } from "../telegram/sender.ts";
@@ -82,6 +82,7 @@ export interface ActiveRun {
   images: ImageContent[];
   imageKeys: Set<string>;
   activity: ActivityEntry[];
+  thinking: string;
   messageId?: number;
   voiceReply: boolean;
 }
@@ -99,10 +100,21 @@ export function renderRun(run: ActiveRun): string {
   });
   const hidden = Math.max(0, lines.length - ACTIVITY_RENDER_LIMIT);
   const visible = hidden > 0 ? [`… ещё ${hidden} тулзов выше`, ...lines.slice(hidden)] : lines;
+  const thinking = renderThinking(run.thinking);
   const text = stripMediaTags(run.text).trim();
-  if (visible.length === 0) return text;
-  const block = visible.join("\n");
-  return text === "" ? block : `${block}\n\n${text}`;
+  const block = [...visible, ...(thinking === "" ? [] : [thinking])].join("\n");
+  if (text === "") return block === "" ? "" : block;
+  return block === "" ? text : `${block}\n\n${text}`;
+}
+
+const THINKING_RENDER_CHARS = 400;
+
+/** Live reasoning tail, clipped so the streaming message never bloats past Telegram limits. */
+function renderThinking(thinking: string): string {
+  const clean = thinking.trim();
+  if (clean === "") return "";
+  const clipped = clean.length > THINKING_RENDER_CHARS ? `…${clean.slice(-THINKING_RENDER_CHARS)}` : clean;
+  return `💭 ${clipped.replace(/\n+/g, " ")}`;
 }
 
 interface SessionHandle {
@@ -603,6 +615,7 @@ export class SessionManager {
       images: [],
       imageKeys: new Set(),
       activity: [],
+      thinking: "",
       messageId: meta.messageId,
       voiceReply: meta.voiceReply === true,
     };
@@ -706,6 +719,12 @@ export class SessionManager {
         const entry = run.activity.find((item) => item.id === tool.toolCallId);
         if (entry) entry.status = tool.isError ? "error" : "done";
       }
+      run.renderer.update(renderRun(run));
+    }
+
+    const thought = extractThinkingDelta(frame);
+    if (thought !== null) {
+      run.thinking += thought;
       run.renderer.update(renderRun(run));
     }
 

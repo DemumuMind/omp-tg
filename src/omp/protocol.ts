@@ -300,6 +300,13 @@ const TextDeltaFrameSchema = z
   })
   .passthrough();
 
+const ThinkingDeltaFrameSchema = z
+  .object({
+    type: z.literal("message_update"),
+    assistantMessageEvent: z.object({ type: z.literal("thinking_delta"), delta: z.string() }).passthrough(),
+  })
+  .passthrough();
+
 const ImageFrameSchema = z
   .object({
     type: z.enum(["message_end", "message_update"]),
@@ -371,6 +378,12 @@ export function extractToolActivity(frame: unknown): ToolActivity | null {
     };
   }
   return null;
+}
+
+/** Reasoning appended by one `message_update` frame (provider thinking stream). */
+export function extractThinkingDelta(frame: unknown): string | null {
+  const parsed = ThinkingDeltaFrameSchema.safeParse(frame);
+  return parsed.success ? parsed.data.assistantMessageEvent.delta : null;
 }
 
 /** Text appended by one `message_update` frame under `messageUpdates: "delta"`. */

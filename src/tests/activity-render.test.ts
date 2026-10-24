@@ -17,6 +17,7 @@ function makeRun(count: number): ActiveRun {
     images: [],
     imageKeys: new Set<string>(),
     activity,
+    thinking: "",
     voiceReply: false,
   };
 }
@@ -39,6 +40,22 @@ describe("renderRun activity list", () => {
     const notice = html.indexOf("… ещё 10");
     const last = html.indexOf("tool_29");
     expect(notice).toBeLessThan(last);
+  });
+
+  test("renders the live reasoning tail above the answer", () => {
+    const run = makeRun(1);
+    run.thinking = "думает".repeat(200) + " финальная мысль";
+    const html = renderRun(run);
+    expect(html).toContain("💭");
+    expect(html).toContain("финальная мысль");
+    expect(html).toContain("…");
+    const thinkingLine = html.split("\n").find((line) => line.startsWith("💭")) ?? "";
+    expect(thinkingLine.length).toBeLessThanOrEqual(410);
+
+    const empty = makeRun(0);
+    empty.thinking = "";
+    empty.text = "готово";
+    expect(renderRun(empty)).toBe("готово");
   });
 
   test("clips long summaries per line", () => {
