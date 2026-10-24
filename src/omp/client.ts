@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
 import { RpcFrameDecoder, RpcProtocolError } from "./frames.ts";
+import { OmpProcess } from "./process.ts";
+import { OmpClosedError, OmpResponseError } from "./errors.ts";
 import {
   AvailableModelsSchema,
   BashResultSchema,
@@ -26,12 +27,10 @@ import {
   type UiRequest,
   type UiResponsePayload,
 } from "./protocol.ts";
-import { AsyncQueue } from "../utils/queue.ts";
 import type { Logger } from "../utils/logger.ts";
 
 const DEFAULT_FRAME_BYTES = 1024 * 1024;
 const DEFAULT_REASSEMBLED_BYTES = 64 * 1024 * 1024;
-const STDERR_TAIL_BYTES = 8192;
 
 const KNOWN_EVENTS: Record<string, true> = {
   message_start: true,
@@ -58,21 +57,7 @@ const KNOWN_EVENTS: Record<string, true> = {
   available_commands_update: true,
 };
 
-export class OmpClosedError extends Error {
-  constructor(message = "OMP process is closed") {
-    super(message);
-    this.name = "OmpClosedError";
-  }
-}
-
-export class OmpResponseError extends Error {
-  readonly code: string | undefined;
-  constructor(message: string, code?: string) {
-    super(message);
-    this.name = "OmpResponseError";
-    this.code = code;
-  }
-}
+export { OmpClosedError, OmpResponseError } from "./errors.ts";
 
 export interface OmpClientOptions {
   bin: string;
@@ -111,10 +96,8 @@ interface ReadyFrame {
 export class OmpClient {
   readonly #options: OmpClientOptions;
   readonly #log: Logger;
-  #proc: Bun.Subprocess<"pipe", "pipe", "pipe"> | null = null;
-  #stdin: Bun.FileSink | null = null;
+  readonly #process: OmpProcess;
   #decoder: RpcFrameDecoder;
-  readonly #queue = new AsyncQueue();
   readonly #pending = new Map<string, Pending>();
   readonly #runs = new Map<string, RunSlot>();
   readonly #settled = new Map<string, PromptResult>();
@@ -127,12 +110,10 @@ export class OmpClient {
   #closePromise: Promise<void> | null = null;
   #readyResolve: ((frame: ReadyFrame) => void) | null = null;
   #readyReject: ((error: Error) => void) | null = null;
-  #stderr = "";
   #protocolVersion: 1 | 2 = 1;
   #maxFrameBytes = DEFAULT_FRAME_BYTES;
   #exitCode: number | null = null;
   #exitNotified = false;
-  #generation = 0;
 
   constructor(options: OmpClientOptions) {
     this.#options = options;
@@ -141,10 +122,20 @@ export class OmpClient {
       { maxFrameBytes: DEFAULT_FRAME_BYTES, maxReassembledBytes: DEFAULT_REASSEMBLED_BYTES },
       (reason) => this.#log.error("rpc_chunk_invalid", { reason }),
     );
+    this.#process = new OmpProcess({
+      bin: options.bin,
+      cwd: options.cwd,
+      sessionDir: options.sessionDir,
+      env: options.env,
+      log: this.#log,
+      onLine: (line) => this.#handleLine(line),
+      onReadError: (error) => this.#fatal(error),
+      onUnexpectedExit: (code) => this.#handleExit(code),
+    });
   }
 
   get alive(): boolean {
-    return this.#proc !== null && !this.#closed && this.#exitCode === null;
+    return this.#process.open && !this.#closed && this.#exitCode === null;
   }
 
   get protocolVersion(): 1 | 2 {
@@ -160,11 +151,12 @@ export class OmpClient {
       this.#log.warn("systemd_scope_unavailable", {
         message: error instanceof Error ? error.message : String(error),
       });
-      await this.#killProcess();
+      this.#process.kill();
       ready = await this.#spawnAndAwaitReady("direct");
     }
 
     this.#maxFrameBytes = ready.maxFrameBytes;
+    this.#process.maxFrameBytes = ready.maxFrameBytes;
     this.#decoder = new RpcFrameDecoder(
       {
         maxFrameBytes: ready.maxFrameBytes,
@@ -204,122 +196,23 @@ export class OmpClient {
   }
 
   async #spawnAndAwaitReady(mode: "direct" | "systemd-user-scope"): Promise<ReadyFrame> {
-    const { bin, cwd, sessionDir, env, startTimeoutMs } = this.#options;
-    const args = [bin, "--mode", "rpc", "--session-dir", sessionDir];
-    const command =
-      mode === "systemd-user-scope"
-        ? [
-            "systemd-run",
-            "--user",
-            "--scope",
-            "--quiet",
-            "--collect",
-            "--unit",
-            `omp-tg-${createHash("sha256").update(sessionDir).digest("hex").slice(0, 12)}`,
-            ...(this.#options.scopeLimits
-              ? [
-                  "--property",
-                  `MemoryMax=${this.#options.scopeLimits.memoryMax}`,
-                  "--property",
-                  `MemorySwapMax=${this.#options.scopeLimits.memorySwapMax}`,
-                  "--property",
-                  `TasksMax=${this.#options.scopeLimits.tasksMax}`,
-                  "--property",
-                  `CPUQuota=${this.#options.scopeLimits.cpuQuota}`,
-                ]
-              : []),
-            "--",
-            ...args,
-          ]
-        : args;
-
-    this.#stopping = false;
-    this.#closed = false;
-    const generation = ++this.#generation;
-    const spawnEnv =
-      mode === "systemd-user-scope"
-        ? { ...process.env, XDG_RUNTIME_DIR: `/run/user/${process.getuid?.() ?? 0}`, ...env }
-        : { ...process.env, ...env };
-    const proc = Bun.spawn(command, {
-      cwd,
-      env: spawnEnv,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    this.#proc = proc;
-    this.#stdin = proc.stdin;
-    this.#exitCode = null;
-    this.#exitNotified = false;
-    this.#stderr = "";
+    this.#process.spawn(mode);
 
     const ready = Promise.withResolvers<ReadyFrame>();
     this.#readyResolve = ready.resolve;
     this.#readyReject = ready.reject;
 
-    void this.#readStdout(proc, generation);
-    void this.#readStderr(proc, generation);
-
     const timeout = setTimeout(() => {
-      this.#readyReject?.(new Error(`Timeout waiting for OMP ready. ${this.#stderrTail()}`));
+      this.#readyReject?.(new Error(`Timeout waiting for OMP ready. ${this.#process.stderrTail}`));
       this.#readyReject = null;
       this.#readyResolve = null;
-    }, startTimeoutMs);
+    }, this.#options.startTimeoutMs);
     timeout.unref?.();
-
-    void proc.exited.then((code) => {
-      if (generation === this.#generation) this.#handleExit(code);
-    });
 
     try {
       return await ready.promise;
     } finally {
       clearTimeout(timeout);
-    }
-  }
-
-  #stderrTail(): string {
-    const tail = this.#stderr.slice(-STDERR_TAIL_BYTES);
-    return tail.trim() === "" ? "" : `stderr: ${tail.trim()}`;
-  }
-
-  async #readStderr(proc: Bun.Subprocess<"pipe", "pipe", "pipe">, generation: number): Promise<void> {
-    const decoder = new TextDecoder();
-    try {
-      for await (const chunk of proc.stderr) {
-        if (generation !== this.#generation) return;
-        this.#stderr += decoder.decode(chunk, { stream: true });
-        if (this.#stderr.length > STDERR_TAIL_BYTES * 2) this.#stderr = this.#stderr.slice(-STDERR_TAIL_BYTES);
-      }
-    } catch {
-      // stderr is diagnostic only; a read failure must not take down the client.
-    }
-  }
-
-  async #readStdout(proc: Bun.Subprocess<"pipe", "pipe", "pipe">, generation: number): Promise<void> {
-    const decoder = new TextDecoder();
-    let buffer = "";
-    try {
-      for await (const chunk of proc.stdout) {
-        if (generation !== this.#generation) return;
-        buffer += decoder.decode(chunk, { stream: true });
-        let newline = buffer.indexOf("\n");
-        while (newline >= 0) {
-          const line = buffer.slice(0, newline);
-          buffer = buffer.slice(newline + 1);
-          if (line.trim() !== "") this.#handleLine(line);
-          newline = buffer.indexOf("\n");
-        }
-        if (Buffer.byteLength(buffer, "utf8") > this.#maxFrameBytes * 2) {
-          this.#log.error("rpc_line_too_long", { bytes: Buffer.byteLength(buffer, "utf8") });
-          buffer = "";
-        }
-      }
-      if (buffer.trim() !== "") this.#handleLine(buffer);
-    } catch (error) {
-      if (!this.#stopping && generation === this.#generation) {
-        this.#fatal(error instanceof Error ? error : new Error(String(error)));
-      }
     }
   }
 
@@ -467,13 +360,8 @@ export class OmpClient {
       : undefined;
     timer?.unref?.();
     this.#pending.set(id, { resolve, reject, timer });
-    this.#queue
-      .push(async () => {
-        const stdin = this.#stdin;
-        if (!stdin) throw new OmpClosedError();
-        stdin.write(`${JSON.stringify(payload)}\n`);
-        await stdin.flush();
-      })
+    this.#process
+      .writeLine(JSON.stringify(payload))
       .catch((error: unknown) => {
         const pending = this.#pending.get(id);
         if (!pending) return;
@@ -577,13 +465,8 @@ export class OmpClient {
   respond(id: string, payload: UiResponsePayload): void {
     if (this.#closed) return;
     const frame: RpcExtensionUIResponse = { type: "extension_ui_response", id, ...payload };
-    this.#queue
-      .push(async () => {
-        const stdin = this.#stdin;
-        if (!stdin) throw new OmpClosedError();
-        stdin.write(`${JSON.stringify(frame)}\n`);
-        await stdin.flush();
-      })
+    this.#process
+      .writeLine(JSON.stringify(frame))
       .catch((error: unknown) => {
         this.#log.warn("rpc_ui_response_failed", {
           message: error instanceof Error ? error.message : String(error),
@@ -599,12 +482,7 @@ export class OmpClient {
 
   async #doClose(): Promise<void> {
     this.#stopping = true;
-    const proc = this.#proc;
     this.#decoder.reset();
-    if (!proc) {
-      this.#closed = true;
-      return;
-    }
 
     const closedError = new OmpClosedError("OMP process closed");
     for (const [id, pending] of this.#pending) {
@@ -623,56 +501,14 @@ export class OmpClient {
     this.#readyReject = null;
     this.#readyResolve = null;
 
-    try {
-      this.#stdin?.end();
-    } catch {
-      // already closed
-    }
-    this.#stdin = null;
-
-    const exited = await Promise.race([
-      proc.exited.then(() => true),
-      Bun.sleep(5000).then(() => false),
-    ]);
-    if (!exited) {
-      try {
-        proc.kill("SIGTERM");
-      } catch {
-        // already dead
-      }
-      const terminated = await Promise.race([
-        proc.exited.then(() => true),
-        Bun.sleep(2000).then(() => false),
-      ]);
-      if (!terminated) {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // already dead
-        }
-      }
-    }
-    this.#closed = true;
-    this.#proc = null;
-  }
-
-  async #killProcess(): Promise<void> {
-    this.#generation += 1;
-    const proc = this.#proc;
-    if (!proc) return;
-    try {
-      proc.kill("SIGKILL");
-    } catch {
-      // already dead
-    }
-    this.#proc = null;
-    this.#stdin = null;
+    await this.#process.close();
     this.#closed = true;
   }
+
 
   #handleExit(code: number | null): void {
     this.#exitCode = code;
-    const error = new OmpClosedError(`OMP process exited with code ${code}. ${this.#stderrTail()}`);
+    const error = new OmpClosedError(`OMP process exited with code ${code}. ${this.#process.stderrTail}`);
     if (this.#readyReject) {
       const reject = this.#readyReject;
       this.#readyReject = null;
@@ -699,7 +535,7 @@ export class OmpClient {
   #notifyExit(): void {
     if (this.#exitNotified) return;
     this.#exitNotified = true;
-    this.#options.onExit({ code: this.#exitCode, stderr: this.#stderrTail() });
+    this.#options.onExit({ code: this.#exitCode, stderr: this.#process.stderrTail });
   }
 
   #fatal(error: Error): void {
