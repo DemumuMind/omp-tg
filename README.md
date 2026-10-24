@@ -73,6 +73,7 @@ TELEGRAM_BOT_TOKEN=test ALLOWED_USER_IDS=1 ./dist/omp-tg --check
 | `OMP_SESSION_ROOT` | `/home/omp/.omp/tg-sessions` | каталоги сессий OMP |
 | `OMP_UPLOAD_DIR` | `$OMP_WORKDIR/.omp-tg-uploads` | входящие документы |
 | `OMP_SPAWN_MODE` | `direct` | `systemd-user-scope` выносит OMP из cgroup шлюза |
+| `OMP_THINKING` | — | уровень thinking спавнящегося OMP: `off`–`max`, `auto`. пусто = как решит OMP |
 | `MAX_ACTIVE_SESSIONS` | `4` | одновременно живых OMP-процессов |
 | `IDLE_TIMEOUT_MS` | `1800000` | простой до закрытия сессии |
 | `OMP_START_TIMEOUT_MS` | `30000` | ожидание `ready` от OMP |
