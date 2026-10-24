@@ -90,21 +90,54 @@ export interface ActiveRun {
 
 
 
-const ACTIVITY_RENDER_LIMIT = 20;
+const ACTIVITY_CHAR_BUDGET = 2800;
 
-export function renderRun(run: ActiveRun): string {
-  const lines = run.activity.map((entry) => {
+export function renderActivityLines(run: ActiveRun): string[] {
+  return run.activity.map((entry) => {
     const mark = entry.status === "running" ? "▸" : entry.status === "error" ? "✗" : "✓";
     const summary = entry.summary && entry.summary.length > 72 ? `${entry.summary.slice(0, 71)}…` : entry.summary;
     return `${mark} ${entry.name}${summary ? ` — ${summary}` : ""}`;
   });
-  const hidden = Math.max(0, lines.length - ACTIVITY_RENDER_LIMIT);
-  const visible = hidden > 0 ? [`… ещё ${hidden} тулзов выше`, ...lines.slice(hidden)] : lines;
+}
+
+/** Newest lines that fit the char budget; older ones collapse into a «… ещё N» notice. */
+function fitActivity(lines: string[]): { visible: string[]; hidden: number } {
+  let budget = ACTIVITY_CHAR_BUDGET;
+  let take = 0;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const cost = lines[index]!.length + 1;
+    if (budget - cost < 0) break;
+    budget -= cost;
+    take += 1;
+  }
+  const hidden = lines.length - take;
+  return { visible: lines.slice(hidden), hidden };
+}
+
+export function renderRun(run: ActiveRun): string {
+  const lines = renderActivityLines(run);
+  const { visible, hidden } = fitActivity(lines);
+  const shown = hidden > 0 ? [`… ещё ${hidden} тулзов выше`, ...visible] : visible;
   const thinking = renderThinking(run.thinking);
   const text = stripMediaTags(run.text).trim();
-  const block = [...visible, ...(thinking === "" ? [] : [thinking])].join("\n");
+  const block = [...shown, ...(thinking === "" ? [] : [thinking])].join("\n");
   if (text === "") return block === "" ? "" : block;
   return block === "" ? text : `${block}\n\n${text}`;
+}
+
+/** Full chronological tool report for the post-run message when the live view clipped entries. */
+export function renderToolReport(run: ActiveRun): string | null {
+  const lines = renderActivityLines(run);
+  const { hidden } = fitActivity(lines);
+  if (hidden === 0) return null;
+  const counts = new Map<string, number>();
+  for (const entry of run.activity) counts.set(entry.name, (counts.get(entry.name) ?? 0) + 1);
+  const header = `<b>🔧 Тулзы (${run.activity.length})</b>: ${[...counts.entries()]
+    .map(([name, count]) => `${escapeFor("HTML", name)}×${count}`)
+    .join(", ")}`;
+  const body = escapeFor("HTML", lines.join("\n"));
+  const clipped = body.length > 3400 ? `${body.slice(0, 3399)}…` : body;
+  return `${header}\n${clipped}`;
 }
 
 const THINKING_RENDER_CHARS = 400;
@@ -650,6 +683,10 @@ export class SessionManager {
         files.push(actual);
       }
       await renderer.finalize(media.text, run.images, files);
+      const report = renderToolReport(run);
+      if (report !== null) {
+        await this.#deps.sender.sendText(handle.target, report).catch(() => undefined);
+      }
       if (
         run.voiceReply &&
         result.status === "completed" &&

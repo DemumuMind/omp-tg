@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { renderRun } from "../omp/session-manager.ts";
+import { renderRun, renderToolReport } from "../omp/session-manager.ts";
 import type { ActiveRun } from "../omp/session-manager.ts";
 import type { StreamRenderer } from "../telegram/stream.ts";
 import type { ImageContent } from "../omp/protocol.ts";
@@ -31,15 +31,32 @@ describe("renderRun activity list", () => {
   });
 
   test("keeps the newest entries and announces the hidden count", () => {
-    const run = makeRun(30);
+    // Long summaries push the entries past the char budget.
+    const run = makeRun(60);
+    run.activity.forEach((entry) => {
+      entry.summary = `${entry.summary} ${"детали ".repeat(10)}`.trim();
+    });
     const html = renderRun(run);
-    expect(html).toContain("… ещё 10 тулзов выше");
-    expect(html).toContain(`✓ tool_29 — дело №${29}`);
-    expect(html).not.toContain("✓ tool_0 ");
-    // No reordering: the hidden notice comes first, entries stay chronological.
-    const notice = html.indexOf("… ещё 10");
-    const last = html.indexOf("tool_29");
+    expect(html).toContain("… ещё");
+    expect(html).toContain(`✓ tool_59 —`);
+    const notice = html.indexOf("… ещё");
+    const last = html.indexOf("tool_59");
     expect(notice).toBeLessThan(last);
+  });
+
+  test("produces a full tool report only when entries were hidden", () => {
+    const small = makeRun(5);
+    expect(renderToolReport(small)).toBeNull();
+
+    const big = makeRun(60);
+    big.activity.forEach((entry) => {
+      entry.summary = `${entry.summary} ${"детали ".repeat(10)}`.trim();
+    });
+    const report = renderToolReport(big);
+    expect(report).not.toBeNull();
+    expect(report!).toContain("🔧 Тулзы (60)");
+    expect(report!).toContain("tool_0×1");
+    expect(report!).toContain("tool_59");
   });
 
   test("renders the live reasoning tail above the answer", () => {
@@ -49,7 +66,7 @@ describe("renderRun activity list", () => {
     expect(html).toContain("💭");
     expect(html).toContain("финальная мысль");
     expect(html).toContain("…");
-    const thinkingLine = html.split("\n").find((line) => line.startsWith("💭")) ?? "";
+    const thinkingLine = html.split("\n").find((line: string) => line.startsWith("💭")) ?? "";
     expect(thinkingLine.length).toBeLessThanOrEqual(410);
 
     const empty = makeRun(0);
