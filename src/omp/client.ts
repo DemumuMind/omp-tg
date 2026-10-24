@@ -64,6 +64,7 @@ export interface OmpClientOptions {
   cwd: string;
   sessionDir: string;
   spawnMode: "direct" | "systemd-user-scope";
+  thinking?: string;
   scopeLimits?: { memoryMax: string; memorySwapMax: string; tasksMax: number; cpuQuota: string };
   startTimeoutMs: number;
   requestTimeoutMs: number;
@@ -124,6 +125,7 @@ export class OmpClient {
     );
     this.#process = new OmpProcess({
       bin: options.bin,
+      thinking: options.thinking,
       cwd: options.cwd,
       sessionDir: options.sessionDir,
       env: options.env,

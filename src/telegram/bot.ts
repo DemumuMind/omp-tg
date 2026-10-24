@@ -94,6 +94,7 @@ export function createApp(config: Config): App {
         cwd: config.OMP_WORKDIR,
         sessionDir: dir,
         spawnMode: config.OMP_SPAWN_MODE,
+        thinking: config.OMP_THINKING,
         scopeLimits: {
           memoryMax: config.OMP_MEMORY_MAX,
           memorySwapMax: config.OMP_MEMORY_SWAP_MAX,

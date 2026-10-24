@@ -48,6 +48,7 @@ const schema = z.object({
   OMP_SESSION_ROOT: z.string().min(1).default("/home/omp/.omp/tg-sessions"),
   OMP_UPLOAD_DIR: z.string().min(1).optional(),
   OMP_SPAWN_MODE: z.enum(["direct", "systemd-user-scope"]).default("direct"),
+  OMP_THINKING: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "auto"]).optional(),
   OMP_MEMORY_MAX: z.string().regex(/^\d+(?:\.\d+)?[KMGT]?$/, "expected a systemd size like 1G").default("1G"),
   OMP_MEMORY_SWAP_MAX: z.string().regex(/^\d+(?:\.\d+)?[KMGT]?$/, "expected a systemd size like 512M").default("256M"),
   OMP_TASKS_MAX: z.coerce.number().int().positive().default(512),
@@ -89,6 +90,7 @@ export interface Config {
   OMP_SESSION_ROOT: string;
   OMP_UPLOAD_DIR: string;
   OMP_SPAWN_MODE: "direct" | "systemd-user-scope";
+  OMP_THINKING?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "auto";
   OMP_MEMORY_MAX: string;
   OMP_MEMORY_SWAP_MAX: string;
   OMP_TASKS_MAX: number;

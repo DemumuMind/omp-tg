@@ -19,6 +19,7 @@ export interface OmpProcessOptions {
   cwd: string;
   sessionDir: string;
   env?: Record<string, string>;
+  thinking?: string;
   log: Logger;
   onLine: (line: string) => void;
   onReadError: (error: Error) => void;
@@ -31,8 +32,10 @@ export function buildOmpCommand(
   sessionDir: string,
   mode: SpawnMode,
   scopeLimits?: ScopeLimits,
+  options?: { thinking?: string },
 ): string[] {
   const args = [bin, "--mode", "rpc", "--session-dir", sessionDir];
+  if (options?.thinking) args.push("--thinking", options.thinking);
   if (mode !== "systemd-user-scope") return args;
   return [
     "systemd-run",
@@ -98,7 +101,9 @@ export class OmpProcess {
   }
 
   spawn(mode: SpawnMode): void {
-    const command = buildOmpCommand(this.#options.bin, this.#options.sessionDir, mode);
+    const command = buildOmpCommand(this.#options.bin, this.#options.sessionDir, mode, undefined, {
+      thinking: this.#options.thinking,
+    });
     const spawnEnv =
       mode === "systemd-user-scope"
         ? { ...process.env, XDG_RUNTIME_DIR: `/run/user/${process.getuid?.() ?? 0}`, ...this.#options.env }
