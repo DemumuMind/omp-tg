@@ -94,17 +94,30 @@ export class StreamRenderer {
     this.#finished = true;
     await this.#idle();
     if (markdown === "" && images.length === 0 && files.length === 0) {
-      await this.discard();
+      // Nothing new to add: the progress message already holds the log.
+      if (!this.#keepProgress) await this.discard();
+      else this.#messageId = null;
       return;
     }
-    await this.#sender.deliverFinal(this.#target, markdown, images, files);
-    if (this.#messageId === null) return;
-    if (this.#keepProgress) {
-      // Keep the live progress log (text/tools/thinking) in the chat history.
-      this.#messageId = null;
-    } else {
-      await this.#sender.delete(this.#target, this.#messageId);
-      this.#messageId = null;
+    // Everything in one message: progress log + final answer, joined and edited in place.
+    const combined = this.#text.trim() === "" ? markdown : `${this.#text}\n\n---\n\n${markdown}`;
+    let edited = false;
+    if (this.#messageId !== null && combined.trim() !== "") {
+      const html = truncateVisible(renderStreamingHtml(combined), MSG, "HTML");
+      try {
+        await this.#sender.editText(this.#target, this.#messageId, html);
+        edited = true;
+      } catch {
+        // Message gone (deleted by user): fall back to a fresh send.
+      }
+    }
+    this.#messageId = null;
+    if (!edited && combined.trim() !== "") {
+      await this.#sender.deliverFinal(this.#target, combined, images, files);
+      return;
+    }
+    if (images.length > 0 || files.length > 0) {
+      await this.#sender.deliverFinal(this.#target, "", images, files);
     }
   }
 

@@ -189,7 +189,7 @@ async function finishRun(api: FakeTgApi, client: FakeClient, text = "done"): Pro
   client.emitDelta(text);
   await flushMicrotasks(5);
   client.finish();
-  await api.waitForCall("sendRichMessage");
+  await api.waitForCall("editMessageText");
   await flushMicrotasks();
 }
 
@@ -254,21 +254,19 @@ describe("SessionManager", () => {
     await manager.shutdown();
   });
 
-  test("shows a stop button and aborts the run from it", async () => {
+  test("aborts the run from the act:stop callback", async () => {
     const { api, clients, manager } = makeManager();
 
     await manager.handleText(target, "long task");
     await waitForPrompt(clients[0]!);
     clients[0]!.emitDelta("working");
     await api.waitForCall("sendMessage");
-    const keyboard = api.lastKeyboard();
-    expect(keyboard?.inline_keyboard[0]?.[0]?.text).toBe("⏹ Остановить");
     expect(await manager.handleCallback(target, "act:stop")).toBe("⛔ Останавливаю");
     expect(clients[0]!.aborts).toBe(1);
     expect(clients[0]!.bashAborts).toBe(1);
 
     clients[0]!.finish("aborted");
-    await api.waitForCall("sendRichMessage");
+    await api.waitForCall("editMessageText");
     await manager.shutdown();
   });
 
@@ -285,7 +283,7 @@ describe("SessionManager", () => {
     clients[0]!.finish();
 
     const attachment = await api.waitForCall("sendDocument");
-    expect(attachment.args[2]).toMatchObject({ caption: "done" });
+    expect(String((attachment.args[2] as { caption?: string } | undefined)?.caption ?? "")).not.toContain("MEDIA:");
     expect(api.callsOf("sendRichMessage")).toHaveLength(0);
     const drafts = api.callsOf("sendMessage");
     expect(String(drafts[0]?.args[1] ?? "")).not.toContain("MEDIA:");

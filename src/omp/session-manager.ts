@@ -272,9 +272,7 @@ export class SessionManager {
     }
     this.#lastPrompts.set(handle.key, { text, images });
     if (handle.run !== null) {
-      await this.#deps.sender.sendText(target, "⏳ Агент ещё работает. Остановить: /abort", {
-        replyMarkup: this.#deps.sender.stopKeyboard(),
-      });
+      await this.#deps.sender.sendText(target, "⏳ Агент ещё работает. Остановить: /abort");
       return;
     }
     if (meta.voiceReply === undefined) meta.voiceReply = this.#voiceDefaults.get(handle.key) === true;
@@ -677,11 +675,10 @@ export class SessionManager {
       handle.target,
       this.#deps.config.THROTTLE_MS,
       this.#deps.log,
-      this.#deps.sender.stopKeyboard(),
+      undefined,
       this.#deps.config.TELEGRAM_SILENT_PROGRESS,
       this.#deps.config.TELEGRAM_KEEP_PROGRESS,
     );
-    renderer.update("⏳ …");
     const run: ActiveRun = {
       renderer,
       text: "",
