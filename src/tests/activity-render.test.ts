@@ -17,6 +17,7 @@ function makeRun(count: number): ActiveRun {
     images: [],
     imageKeys: new Set<string>(),
     activity,
+    segments: activity.map((entry) => ({ kind: "tool", entry })),
     thinking: "",
     voiceReply: false,
   };
@@ -25,8 +26,8 @@ function makeRun(count: number): ActiveRun {
 describe("renderRun activity list", () => {
   test("shows all entries when under the limit", () => {
     const html = renderRun(makeRun(3));
-    expect(html).toContain("✓ tool_0 — дело №0");
-    expect(html).toContain("✓ tool_2 — дело №2");
+    expect(html).toContain("✓ 🔧 `tool_0` — _дело №0_");
+    expect(html).toContain("✓ 🔧 `tool_2`");
     expect(html).not.toContain("ещё");
   });
 
@@ -38,7 +39,7 @@ describe("renderRun activity list", () => {
     });
     const html = renderRun(run);
     expect(html).toContain("… ещё");
-    expect(html).toContain(`✓ tool_59 —`);
+    expect(html).toContain("`tool_59`");
     const notice = html.indexOf("… ещё");
     const last = html.indexOf("tool_59");
     expect(notice).toBeLessThan(last);
@@ -61,7 +62,9 @@ describe("renderRun activity list", () => {
 
   test("renders the live reasoning tail above the answer", () => {
     const run = makeRun(1);
-    run.thinking = "думает".repeat(200) + " финальная мысль";
+    const thinking = "думает".repeat(200) + " финальная мысль";
+    run.thinking = thinking;
+    run.segments.push({ kind: "thinking", text: thinking });
     const html = renderRun(run);
     expect(html).toContain("💭");
     expect(html).toContain("финальная мысль");
@@ -73,6 +76,25 @@ describe("renderRun activity list", () => {
     empty.thinking = "";
     empty.text = "готово";
     expect(renderRun(empty)).toBe("готово");
+  });
+
+  test("interleaves text, tools and thinking in arrival order", () => {
+    const run = makeRun(0);
+    run.segments.push({ kind: "text", text: "Сначала я осмотрюсь." });
+    run.segments.push({ kind: "tool", entry: { id: "a", name: "read", summary: "Читаю конфиг", status: "done" } });
+    run.segments.push({ kind: "text", text: "Теперь правлю." });
+    run.segments.push({ kind: "tool", entry: { id: "b", name: "write", summary: "Пишу результат", status: "running" } });
+    const html = renderRun(run);
+    const text1 = html.indexOf("Сначала я осмотрюсь.");
+    const tool1 = html.indexOf("`read`");
+    const text2 = html.indexOf("Теперь правлю.");
+    const tool2 = html.indexOf("`write`");
+    expect(text1).toBeLessThan(tool1);
+    expect(tool1).toBeLessThan(text2);
+    expect(text2).toBeLessThan(tool2);
+    expect(html).toContain("📖");
+    expect(html).toContain("✍️");
+    expect(html).toContain("▸");
   });
 
   test("clips long summaries per line", () => {

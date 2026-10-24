@@ -82,6 +82,7 @@ export interface ActiveRun {
   images: ImageContent[];
   imageKeys: Set<string>;
   activity: ActivityEntry[];
+  segments: Segment[];
   thinking: string;
   messageId?: number;
   voiceReply: boolean;
@@ -92,12 +93,37 @@ export interface ActiveRun {
 
 const ACTIVITY_CHAR_BUDGET = 2800;
 
-export function renderActivityLines(run: ActiveRun): string[] {
-  return run.activity.map((entry) => {
-    const mark = entry.status === "running" ? "▸" : entry.status === "error" ? "✗" : "✓";
-    const summary = entry.summary && entry.summary.length > 72 ? `${entry.summary.slice(0, 71)}…` : entry.summary;
-    return `${mark} ${entry.name}${summary ? ` — ${summary}` : ""}`;
-  });
+export type Segment =
+  | { kind: "tool"; entry: ActivityEntry }
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string };
+
+/** One emoji per tool family — Telegram has no font colors, so visual variety comes from here. */
+const TOOL_EMOJI: Array<[RegExp, string]> = [
+  [/^(bash|shell|terminal|exec|run_command)/, "🖥"],
+  [/^(read|view|cat)/, "📖"],
+  [/^(write|save)/, "✍️"],
+  [/^(edit|patch|apply|update)/, "✏️"],
+  [/^(grep|search|find|seek)/, "🔍"],
+  [/^(glob|list|ls)/, "🗂"],
+  [/^(web|fetch|browser|curl|http|url)/, "🌐"],
+  [/^(git|gh)/, "🌿"],
+];
+
+function toolEmoji(name: string): string {
+  for (const [pattern, emoji] of TOOL_EMOJI) if (pattern.test(name)) return emoji;
+  return "🔧";
+}
+
+function renderToolLine(entry: ActivityEntry): string {
+  const mark = entry.status === "running" ? "▸" : entry.status === "error" ? "✗" : "✓";
+  const summary = entry.summary && entry.summary.length > 72 ? `${entry.summary.slice(0, 71)}…` : entry.summary;
+  const name = entry.name.length > 28 ? `${entry.name.slice(0, 27)}…` : entry.name;
+  return `${mark} ${toolEmoji(entry.name)} \`${name}\`${summary ? ` — _${summary}_` : ""}`;
+}
+
+function renderActivityLines(run: ActiveRun): string[] {
+  return run.activity.map(renderToolLine);
 }
 
 /** Newest lines that fit the char budget; older ones collapse into a «… ещё N» notice. */
@@ -114,15 +140,24 @@ function fitActivity(lines: string[]): { visible: string[]; hidden: number } {
   return { visible: lines.slice(hidden), hidden };
 }
 
-export function renderRun(run: ActiveRun): string {
-  const lines = renderActivityLines(run);
-  const { visible, hidden } = fitActivity(lines);
-  const shown = hidden > 0 ? [`… ещё ${hidden} тулзов выше`, ...visible] : visible;
-  const thinking = renderThinking(run.thinking);
-  const text = stripMediaTags(run.text).trim();
-  const block = [...shown, ...(thinking === "" ? [] : [thinking])].join("\n");
-  if (text === "") return block === "" ? "" : block;
-  return block === "" ? text : `${block}\n\n${text}`;
+export /** Renders the run like the OMP TUI: text, tools, thinking interleaved in arrival order. */
+function renderRun(run: ActiveRun): string {
+  const blocks: string[] = [];
+  for (const segment of run.segments) {
+    if (segment.kind === "tool") {
+      blocks.push(renderToolLine(segment.entry));
+    } else if (segment.kind === "thinking") {
+      const rendered = renderThinking(segment.text);
+      if (rendered !== "") blocks.push(rendered);
+    } else {
+      const text = stripMediaTags(segment.text).trim();
+      if (text !== "") blocks.push(text);
+    }
+  }
+  if (blocks.length === 0) return stripMediaTags(run.text).trim();
+  const { visible, hidden } = fitActivity(blocks);
+  const shown = hidden > 0 ? [`… ещё ${hidden} шагов выше`, ...visible] : visible;
+  return shown.join("\n\n");
 }
 
 /** Full chronological tool report for the post-run message when the live view clipped entries. */
@@ -147,7 +182,7 @@ function renderThinking(thinking: string): string {
   const clean = thinking.trim();
   if (clean === "") return "";
   const clipped = clean.length > THINKING_RENDER_CHARS ? `…${clean.slice(-THINKING_RENDER_CHARS)}` : clean;
-  return `💭 ${clipped.replace(/\n+/g, " ")}`;
+  return `💭 _${clipped.replace(/\n+/g, " ")}_`;
 }
 
 interface SessionHandle {
@@ -648,6 +683,7 @@ export class SessionManager {
       images: [],
       imageKeys: new Set(),
       activity: [],
+      segments: [],
       thinking: "",
       messageId: meta.messageId,
       voiceReply: meta.voiceReply === true,
@@ -745,13 +781,15 @@ export class SessionManager {
     const tool = extractToolActivity(frame);
     if (tool) {
       if (tool.phase === "start") {
-        run.activity.push({
+        const entry: ActivityEntry = {
           id: tool.toolCallId,
           name: tool.toolName,
           ...(tool.summary ? { summary: tool.summary } : {}),
           status: "running",
-        });
+        };
+        run.activity.push(entry);
         if (run.activity.length > 400) run.activity.splice(0, run.activity.length - 400);
+        run.segments.push({ kind: "tool", entry });
       } else {
         const entry = run.activity.find((item) => item.id === tool.toolCallId);
         if (entry) entry.status = tool.isError ? "error" : "done";
@@ -762,12 +800,18 @@ export class SessionManager {
     const thought = extractThinkingDelta(frame);
     if (thought !== null) {
       run.thinking += thought;
+      const last = run.segments.at(-1);
+      if (last && last.kind === "thinking") last.text += thought;
+      else run.segments.push({ kind: "thinking", text: thought });
       run.renderer.update(renderRun(run));
     }
 
     const delta = extractTextDelta(frame);
     if (delta !== null) {
       run.text += delta;
+      const last = run.segments.at(-1);
+      if (last && last.kind === "text") last.text += delta;
+      else run.segments.push({ kind: "text", text: delta });
       run.renderer.update(renderRun(run));
     }
     for (const image of extractImages(frame)) this.#addImage(run, image);
