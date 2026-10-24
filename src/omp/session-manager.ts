@@ -188,7 +188,8 @@ function renderThinking(thinking: string): string {
   const clean = thinking.trim();
   if (clean.length < THINKING_MIN_CHARS) return "";
   const clipped = clean.length > THINKING_RENDER_CHARS ? `…${clean.slice(-THINKING_RENDER_CHARS)}` : clean;
-  return `💭 _${clipped.replace(/\n+/g, " ")}_`;
+  // Like the OMP TUI: keep line breaks, one italic block per reasoning segment.
+  return `💭 _${clipped.replace(/[ \t]*\n[ \t]*/g, "\n").trim()}_`;
 }
 
 interface SessionHandle {
