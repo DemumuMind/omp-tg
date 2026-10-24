@@ -15,6 +15,7 @@ export class StreamRenderer {
   readonly #silent: boolean;
   #text = "";
   #messageId: number | null = null;
+  #keepProgress: boolean;
   #lastEdit = 0;
   #dirty = false;
   #pumping = false;
@@ -28,6 +29,7 @@ export class StreamRenderer {
     log: Logger,
     draftMarkup?: InlineKeyboardMarkup,
     silent = true,
+    keepProgress = true,
   ) {
     this.#sender = sender;
     this.#target = target;
@@ -35,6 +37,7 @@ export class StreamRenderer {
     this.#log = log;
     this.#draftMarkup = draftMarkup;
     this.#silent = silent;
+    this.#keepProgress = keepProgress;
   }
 
   update(text: string): void {
@@ -95,7 +98,11 @@ export class StreamRenderer {
       return;
     }
     await this.#sender.deliverFinal(this.#target, markdown, images, files);
-    if (this.#messageId !== null) {
+    if (this.#messageId === null) return;
+    if (this.#keepProgress) {
+      // Keep the live progress log (text/tools/thinking) in the chat history.
+      this.#messageId = null;
+    } else {
       await this.#sender.delete(this.#target, this.#messageId);
       this.#messageId = null;
     }

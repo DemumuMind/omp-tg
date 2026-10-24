@@ -676,6 +676,7 @@ export class SessionManager {
       this.#deps.log,
       this.#deps.sender.stopKeyboard(),
       this.#deps.config.TELEGRAM_SILENT_PROGRESS,
+      this.#deps.config.TELEGRAM_KEEP_PROGRESS,
     );
     const run: ActiveRun = {
       renderer,

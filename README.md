@@ -66,6 +66,7 @@ TELEGRAM_BOT_TOKEN=test ALLOWED_USER_IDS=1 ./dist/omp-tg --check
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | — | токен BotFather |
+| `TELEGRAM_KEEP_PROGRESS` | `true` | сохранять сообщение прогресса (тулзы/💭/текст хода) после финального ответа |
 | `ALLOWED_USER_IDS` | — | обязательный список ID через запятую |
 | `OMP_ENDPOINT` | `spawn` | единственный поддерживаемый транспорт |
 | `OMP_BIN` | `/home/omp/.local/bin/omp` | путь к OMP |

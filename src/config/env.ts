@@ -68,6 +68,7 @@ const schema = z.object({
   TELEGRAM_REACTIONS: boolString(true),
   TELEGRAM_DROP_PENDING_UPDATES: boolString(true),
   TELEGRAM_SILENT_PROGRESS: boolString(true),
+  TELEGRAM_KEEP_PROGRESS: boolString(true),
   TELEGRAM_COMMAND_MENU: boolString(true),
   STT_ENABLED: boolString(false),
   STT_URL: z.string().default("http://127.0.0.1:8765"),
@@ -110,6 +111,7 @@ export interface Config {
   TELEGRAM_REACTIONS: boolean;
   TELEGRAM_DROP_PENDING_UPDATES: boolean;
   TELEGRAM_SILENT_PROGRESS: boolean;
+  TELEGRAM_KEEP_PROGRESS: boolean;
   TELEGRAM_COMMAND_MENU: boolean;
   STT_ENABLED: boolean;
   STT_URL: string;
