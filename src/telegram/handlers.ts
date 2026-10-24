@@ -6,7 +6,7 @@ import {
   FILE_MAX_BYTES,
   UPLOAD_MAX_BYTES,
 } from "../config/constants.ts";
-import { fetchFileAttachment, MediaDownloadError, MediaTooLargeError } from "../omp/media.ts";
+import { fetchFileAttachment, fetchPhoto, MediaDownloadError, MediaTooLargeError } from "../omp/media.ts";
 import { escapeFor } from "../utils/escape.ts";
 import { transcribeAudio } from "../stt/client.ts";
 import { BashTimeoutError, BusyError, type SessionManagerCommand } from "../omp/session-manager.ts";
@@ -35,8 +35,9 @@ export async function routeText(
   runtime: Runtime,
   ctx: Context,
   raw: string,
-  images: ImageContent[],
+  initialImages: ImageContent[] = [],
 ): Promise<void> {
+  let images = initialImages;
   const target = targetOf(ctx);
   const gated = gateGroup(runtime, ctx, raw);
   if (gated === null) return;
@@ -65,13 +66,60 @@ export async function routeText(
 
   if (text === "" && images.length === 0) return;
 
-  const prompt = `${replyPrefix(ctx)}${isGroup ? senderLabel(ctx) : ""}${text}`;
+  // Media quoted by the user must reach the agent, not a "[media]" placeholder.
+  const replyMedia = await collectReplyMedia(runtime, ctx);
+  images = [...images, ...replyMedia.images];
+
+  const prompt = [
+    replyPrefix(ctx).trimEnd(),
+    `${isGroup ? senderLabel(ctx) : ""}${text}`,
+    replyMedia.note,
+  ]
+    .filter((part) => part !== "")
+    .join("\n");
   if (runtime.config.TELEGRAM_REACTIONS && ctx.message) {
     void runtime.sender.react(target, ctx.message.message_id, "👀");
   }
   await runtime.sessions.handleText(target, prompt, images, {
     messageId: ctx.message?.message_id,
   });
+}
+
+async function collectReplyMedia(
+  runtime: Runtime,
+  ctx: Context,
+): Promise<{ images: ImageContent[]; note: string }> {
+  const reply = ctx.message?.reply_to_message;
+  if (!reply) return { images: [], note: "" };
+  try {
+    if (reply.photo) {
+      const image = await fetchPhoto(runtime.bot.api, runtime.config.TELEGRAM_BOT_TOKEN, reply.photo, UPLOAD_MAX_BYTES);
+      return { images: [image], note: "" };
+    }
+    const file =
+      reply.document ? { msg: reply.document, fallback: "file.bin", label: "document" } :
+      reply.voice ? { msg: reply.voice, fallback: "voice.ogg", label: "voice message" } :
+      reply.audio ? { msg: reply.audio, fallback: "audio.mp3", label: "audio file" } :
+      reply.video ? { msg: reply.video, fallback: "video.mp4", label: "video file" } :
+      reply.video_note ? { msg: reply.video_note, fallback: "video-note.mp4", label: "video note" } :
+      reply.animation ? { msg: reply.animation, fallback: "animation.mp4", label: "animation" } :
+      null;
+    if (!file) return { images: [], note: "" };
+    const target = targetOf(ctx);
+    const uploadDir = await runtime.sessions.uploadDirFor(target);
+    const path = await fetchFileAttachment(
+      runtime.bot.api,
+      runtime.config.TELEGRAM_BOT_TOKEN,
+      file.msg,
+      uploadDir,
+      UPLOAD_MAX_BYTES,
+      file.fallback,
+    );
+    const attachment = await describeAttachment(runtime, path, file.label);
+    return { images: [], note: attachment.note };
+  } catch (error) {
+    return { images: [], note: "" };
+  }
 }
 
 export async function handleIncomingFile(
