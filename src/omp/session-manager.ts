@@ -76,7 +76,7 @@ interface ActivityEntry {
   status: "running" | "done" | "error";
 }
 
-interface ActiveRun {
+export interface ActiveRun {
   renderer: StreamRenderer;
   text: string;
   images: ImageContent[];
@@ -89,14 +89,19 @@ interface ActiveRun {
 
 
 
-function renderRun(run: ActiveRun): string {
+const ACTIVITY_RENDER_LIMIT = 20;
+
+export function renderRun(run: ActiveRun): string {
   const lines = run.activity.map((entry) => {
     const mark = entry.status === "running" ? "▸" : entry.status === "error" ? "✗" : "✓";
-    return `${mark} ${entry.name}${entry.summary ? ` — ${entry.summary}` : ""}`;
+    const summary = entry.summary && entry.summary.length > 72 ? `${entry.summary.slice(0, 71)}…` : entry.summary;
+    return `${mark} ${entry.name}${summary ? ` — ${summary}` : ""}`;
   });
+  const hidden = Math.max(0, lines.length - ACTIVITY_RENDER_LIMIT);
+  const visible = hidden > 0 ? [`… ещё ${hidden} тулзов выше`, ...lines.slice(hidden)] : lines;
   const text = stripMediaTags(run.text).trim();
-  if (lines.length === 0) return text;
-  const block = lines.join("\n");
+  if (visible.length === 0) return text;
+  const block = visible.join("\n");
   return text === "" ? block : `${block}\n\n${text}`;
 }
 
@@ -696,7 +701,7 @@ export class SessionManager {
           ...(tool.summary ? { summary: tool.summary } : {}),
           status: "running",
         });
-        if (run.activity.length > 12) run.activity.splice(0, run.activity.length - 12);
+        if (run.activity.length > 400) run.activity.splice(0, run.activity.length - 400);
       } else {
         const entry = run.activity.find((item) => item.id === tool.toolCallId);
         if (entry) entry.status = tool.isError ? "error" : "done";
