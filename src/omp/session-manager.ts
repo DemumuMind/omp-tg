@@ -177,10 +177,13 @@ export function renderToolReport(run: ActiveRun): string | null {
 
 const THINKING_RENDER_CHARS = 400;
 
-/** Live reasoning tail, clipped so the streaming message never bloats past Telegram limits. */
+const THINKING_MIN_CHARS = 24;
+
+/** Live reasoning tail, clipped so the streaming message never bloats past Telegram limits.
+ *  Fragments shorter than THINKING_MIN_CHARS are noise mid-stream and are hidden. */
 function renderThinking(thinking: string): string {
   const clean = thinking.trim();
-  if (clean === "") return "";
+  if (clean.length < THINKING_MIN_CHARS) return "";
   const clipped = clean.length > THINKING_RENDER_CHARS ? `…${clean.slice(-THINKING_RENDER_CHARS)}` : clean;
   return `💭 _${clipped.replace(/\n+/g, " ")}_`;
 }
@@ -678,6 +681,7 @@ export class SessionManager {
       this.#deps.config.TELEGRAM_SILENT_PROGRESS,
       this.#deps.config.TELEGRAM_KEEP_PROGRESS,
     );
+    renderer.update("⏳ …");
     const run: ActiveRun = {
       renderer,
       text: "",
