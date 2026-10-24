@@ -103,8 +103,14 @@ async function collectReplyMedia(
       reply.video ? { msg: reply.video, fallback: "video.mp4", label: "video file" } :
       reply.video_note ? { msg: reply.video_note, fallback: "video-note.mp4", label: "video note" } :
       reply.animation ? { msg: reply.animation, fallback: "animation.mp4", label: "animation" } :
+      reply.sticker ? { msg: reply.sticker, fallback: "sticker.webp", label: "sticker" } :
       null;
-    if (!file) return { images: [], note: "" };
+    if (!file) {
+      // Reply to something textless we do not model (poll, contact, dice…): say so.
+      const textless = !reply.text && !reply.caption;
+      if (textless) runtime.log.info("reply_media_unrecognized", { keys: Object.keys(reply).slice(0, 20) });
+      return { images: [], note: "" };
+    }
     const target = targetOf(ctx);
     const uploadDir = await runtime.sessions.uploadDirFor(target);
     const path = await fetchFileAttachment(
